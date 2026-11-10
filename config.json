@@ -17,6 +17,15 @@
       "priority": 1,
       "enabled": true,
       "careers_url": "https://jobs.ashbyhq.com/satispay"
+    },
+    {
+      "name": "Amazon / AWS",
+      "provider": "amazon",
+      "site": "italy",
+      "region": "Italy",
+      "priority": 1,
+      "enabled": true,
+      "careers_url": "https://www.amazon.jobs/en/search?country%5B%5D=ITA"
     }
   ],
   "title_keywords": [

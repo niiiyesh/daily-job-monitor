@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 
 import requests
+from urllib.parse import urljoin
 
 ROOT = Path(__file__).resolve().parent
 CONFIG_PATH = ROOT / "config.json"
@@ -95,6 +96,48 @@ def fetch_jobs(company):
                 "url": job_url,
                 "description": job.get("description", ""),
             })
+
+    elif provider == "amazon":
+        # Amazon/AWS share the same public careers board. The JSON search
+        # endpoint is publicly readable but undocumented and may change.
+        endpoint = "https://www.amazon.jobs/en/search.json"
+        limit = 100
+        for offset in range(0, 10000, limit):
+            response = requests.get(
+                endpoint,
+                params={
+                    "offset": offset,
+                    "result_limit": limit,
+                    "sort": "recent",
+                    "base_query": "",
+                    "normalized_country_code[]": "ITA",
+                },
+                timeout=TIMEOUT,
+                headers={"User-Agent": "CareerMonitor/1.0 (personal job alerts)"},
+            )
+            response.raise_for_status()
+            payload = response.json()
+            page = payload.get("jobs")
+            if not isinstance(page, list):
+                raise ValueError("Amazon returned an unexpected jobs response")
+            for job in page:
+                # Validate country locally as well; never trust an API filter alone.
+                if (job.get("country_code") or "").upper() != "ITA":
+                    continue
+                path = job.get("job_path") or ""
+                identifier = job.get("id_icims")
+                if identifier is None or not path:
+                    continue
+                location = job.get("location") or job.get("normalized_location") or job.get("city") or ""
+                results.append({
+                    "id": str(identifier),
+                    "title": job.get("title", ""),
+                    "location": f"{location}, Italy" if location else "Italy",
+                    "url": urljoin("https://www.amazon.jobs", path),
+                    "description": job.get("description", ""),
+                })
+            if len(page) < limit:
+                break
 
     else:
         raise ValueError(f"Unsupported provider '{provider}' for {company['name']}")
