@@ -1,0 +1,157 @@
+"""Check public ATS job boards and alert on newly published matching roles."""
+
+import argparse
+import json
+import os
+from pathlib import Path
+
+import requests
+
+ROOT = Path(__file__).resolve().parent
+CONFIG_PATH = ROOT / "config.json"
+STATE_PATH = ROOT / "data" / "seen_jobs.json"
+TIMEOUT = 25
+
+
+def fetch_jobs(company):
+    """Return normalized public job postings for a Greenhouse or Lever site."""
+    provider = company["provider"].lower()
+    site = company["site"].strip().strip("/")
+    results = []
+
+    if provider == "greenhouse":
+        url = f"https://boards-api.greenhouse.io/v1/boards/{site}/jobs"
+        response = requests.get(url, params={"content": "true"}, timeout=TIMEOUT)
+        response.raise_for_status()
+        for job in response.json()["jobs"]:
+            results.append({
+                "id": str(job["id"]),
+                "title": job.get("title", ""),
+                "location": (job.get("location") or {}).get("name", ""),
+                "url": job.get("absolute_url", ""),
+                "description": job.get("content", ""),
+            })
+
+    elif provider == "lever":
+        # Lever supports paginated public postings. Collect all pages.
+        url = f"https://api.lever.co/v0/postings/{site}"
+        limit = 100
+        for offset in range(0, 10000, limit):
+            response = requests.get(url, params={"mode": "json", "skip": offset, "limit": limit}, timeout=TIMEOUT)
+            response.raise_for_status()
+            page = response.json()
+            for job in page:
+                categories = job.get("categories") or {}
+                locations = categories.get("allLocations") or []
+                location = ", ".join(locations) if locations else categories.get("location", "")
+                results.append({
+                    "id": str(job["id"]),
+                    "title": job.get("text", ""),
+                    "location": location or "",
+                    "url": job.get("hostedUrl") or job.get("applyUrl") or "",
+                    "description": job.get("descriptionPlain", ""),
+                })
+            if len(page) < limit:
+                break
+    else:
+        raise ValueError(f"Unsupported provider '{provider}' for {company['name']}")
+
+    return results
+
+
+def matches(job, config):
+    """Simple, explainable filter (not yet AI ranking)."""
+    title = job["title"].casefold()
+    location = job["location"].casefold()
+    positive = config.get("title_keywords", [])
+    excluded = config.get("exclude_title_keywords", [])
+    places = config.get("locations", [])
+
+    role_ok = not positive or any(word.casefold() in title for word in positive)
+    seniority_ok = not any(word.casefold() in title for word in excluded)
+    location_ok = not places or any(place.casefold() in location for place in places)
+    return role_ok and seniority_ok and location_ok
+
+
+def send_telegram(job, company_name, token, chat_id):
+    """Send one alert and raise if delivery fails (so we can retry tomorrow)."""
+    msg = (f"NEW JOB | {company_name}\n"
+           f"{job['title']}\n"
+           f"Location: {job['location'] or 'Not specified'}\n"
+           f"Apply: {job['url']}")
+    response = requests.post(
+        f"https://api.telegram.org/bot{token}/sendMessage",
+        json={"chat_id": chat_id, "text": msg[:4000]},
+        timeout=TIMEOUT,
+    )
+    response.raise_for_status()
+    if not response.json().get("ok"):
+        raise RuntimeError("Telegram reported unsuccessful delivery")
+
+
+def main(dry_run=False):
+    config = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    if STATE_PATH.exists():
+        state = json.loads(STATE_PATH.read_text(encoding="utf-8"))
+    else:
+        state = {}
+
+    token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
+    enabled = [c for c in config["companies"] if c.get("enabled", True)]
+    if not enabled:
+        print("No active companies. Enable one in config.json.")
+        return
+
+    for company in enabled:
+        key = f"{company['provider'].lower()}:{company['site'].lower()}"
+        try:
+            jobs = fetch_jobs(company)
+        except (requests.RequestException, ValueError, KeyError, TypeError) as error:
+            print(f"ERROR: Cannot read {company['name']}: {error}")
+            continue  # Do not change state for an unsuccessful source.
+
+        relevant = [job for job in jobs if matches(job, config)]
+        print(f"{company['name']}: {len(jobs)} total, {len(relevant)} matching roles.")
+        if dry_run:
+            for job in relevant[:10]:
+                print(f"  {job['title']} | {job['location']} | {job['url']}")
+            continue
+
+        if key not in state:
+            # First successful run: establish a baseline, rather than alerting
+            # about vacancies that might have been published months ago.
+            state[key] = sorted({job["id"] for job in jobs})
+            print("  First run: saved current postings as baseline; no alerts sent.")
+            continue
+
+        seen = set(state[key])
+        for job in jobs:
+            job_id = job["id"]
+            if job_id in seen:
+                continue
+            if not matches(job, config):
+                seen.add(job_id)
+                continue
+            if not (token and chat_id):
+                print(f"  NEW MATCH (no Telegram secrets yet): {job['title']} - {job['url']}")
+                continue  # Retry on next run, rather than claiming we sent it.
+            try:
+                send_telegram(job, company["name"], token, chat_id)
+                print(f"  Notified: {job['title']}")
+                seen.add(job_id)
+            except (requests.RequestException, RuntimeError) as error:
+                print(f"  ALERT FAILED (will retry): {job['title']}: {error}")
+        state[key] = sorted(seen)
+
+    if not dry_run:
+        STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        STATE_PATH.write_text(json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        print("Saved job history.")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Monitor public job boards")
+    parser.add_argument("--dry-run", action="store_true", help="Preview matching roles; do not send alerts or change history")
+    args = parser.parse_args()
+    main(dry_run=args.dry_run)

@@ -1,0 +1,42 @@
+{
+  "companies": [
+    {
+      "name": "Greenhouse (working example)",
+      "provider": "greenhouse",
+      "site": "greenhouse",
+      "enabled": true
+    },
+    {
+      "name": "Lever (optional example)",
+      "provider": "lever",
+      "site": "lever",
+      "enabled": false
+    }
+  ],
+  "title_keywords": [
+    "data analyst",
+    "business analyst",
+    "business intelligence",
+    "marketing analyst",
+    "crm",
+    "analytics intern",
+    "marketing intern",
+    "data science intern"
+  ],
+  "exclude_title_keywords": [
+    "senior",
+    "staff",
+    "principal",
+    "director",
+    "head of",
+    "lead"
+  ],
+  "locations": [
+    "italy",
+    "italia",
+    "milan",
+    "milano",
+    "turin",
+    "torino"
+  ]
+}
