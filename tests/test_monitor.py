@@ -23,6 +23,25 @@ class JobMonitorTests(unittest.TestCase):
         self.assertEqual(jobs[0]["location"], "Milan")
 
     @patch("monitor.requests.get")
+    def test_ashby_response(self, mocked_get):
+        reply = Mock()
+        reply.json.return_value = {"jobs": [{"title":"Marketing Analyst", "location":"Milan", "jobUrl":"https://jobs.ashbyhq.com/company/xyz", "descriptionPlain":"English", "isListed":True}]}
+        mocked_get.return_value = reply
+        jobs = fetch_jobs({"name":"Satispay", "provider":"ashby", "site":"satispay"})
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(jobs[0]["title"], "Marketing Analyst")
+        self.assertEqual(jobs[0]["location"], "Milan")
+
+    @patch("monitor.requests.get")
+    def test_workable_response(self, mocked_get):
+        reply = Mock()
+        reply.json.return_value = {"jobs": [{"shortcode":"XYZ", "title":"Data Analyst", "city":"Milan", "country":"Italy", "shortlink":"https://apply.workable.com/j/XYZ/"}]}
+        mocked_get.return_value = reply
+        jobs = fetch_jobs({"name":"Empatica", "provider":"workable", "site":"empatica"})
+        self.assertEqual(jobs[0]["id"], "XYZ")
+        self.assertEqual(jobs[0]["location"], "Milan, Italy")
+
+    @patch("monitor.requests.get")
     def test_lever_response(self, mocked_get):
         reply = Mock()
         reply.json.return_value = [{"id": "abc", "text": "Marketing Analyst", "categories": {"allLocations": ["Milano"]}, "hostedUrl": "https://example.org/j/abc"}]

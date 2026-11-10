@@ -14,7 +14,7 @@ TIMEOUT = 25
 
 
 def fetch_jobs(company):
-    """Return normalized public job postings for a Greenhouse or Lever site."""
+    """Return normalized public job postings for a supported ATS."""
     provider = company["provider"].lower()
     site = company["site"].strip().strip("/")
     results = []
@@ -53,6 +53,49 @@ def fetch_jobs(company):
                 })
             if len(page) < limit:
                 break
+    elif provider == "ashby":
+        # Official public Ashby job-postings API (no credentials needed).
+        url = f"https://api.ashbyhq.com/posting-api/job-board/{site}"
+        response = requests.get(url, timeout=TIMEOUT)
+        response.raise_for_status()
+        for job in response.json().get("jobs", []):
+            if job.get("isListed") is False:
+                continue  # Do not surface unlisted jobs.
+            secondary = [entry.get("location", "") for entry in (job.get("secondaryLocations") or [])]
+            locations = [job.get("location", "")] + secondary
+            address = (job.get("address") or {}).get("postalAddress") or {}
+            country = address.get("addressCountry", "")
+            location = ", ".join(dict.fromkeys(str(x) for x in locations + [country] if x))
+            job_url = job.get("jobUrl") or job.get("applyUrl") or ""
+            if not job_url:
+                continue
+            results.append({
+                "id": str(job.get("id") or job_url),
+                "title": job.get("title", ""),
+                "location": location,
+                "url": job_url,
+                "description": job.get("descriptionPlain", ""),
+            })
+
+    elif provider == "workable":
+        # Workable's documented public jobs endpoint (not the private SPI API).
+        url = f"https://www.workable.com/api/accounts/{site}"
+        response = requests.get(url, params={"details": "true"}, timeout=TIMEOUT)
+        response.raise_for_status()
+        for job in response.json().get("jobs", []):
+            job_url = job.get("shortlink") or job.get("application_url") or job.get("url") or ""
+            job_id = job.get("shortcode") or job.get("code") or job_url
+            if not job_id or not job_url:
+                continue
+            location = ", ".join(str(job[field]) for field in ("city", "state", "country") if job.get(field))
+            results.append({
+                "id": str(job_id),
+                "title": job.get("title", ""),
+                "location": location,
+                "url": job_url,
+                "description": job.get("description", ""),
+            })
+
     else:
         raise ValueError(f"Unsupported provider '{provider}' for {company['name']}")
 
@@ -111,7 +154,9 @@ def main(dry_run=False):
             print(f"ERROR: Cannot read {company['name']}: {error}")
             continue  # Do not change state for an unsuccessful source.
 
-        relevant = [job for job in jobs if matches(job, config)]
+        # Allow each company to use its own geographical filter.
+        company_config = {**config, "locations": company.get("locations", config.get("locations", []))}
+        relevant = [job for job in jobs if matches(job, company_config)]
         print(f"{company['name']}: {len(jobs)} total, {len(relevant)} matching roles.")
         if dry_run:
             for job in relevant[:10]:
@@ -130,7 +175,7 @@ def main(dry_run=False):
             job_id = job["id"]
             if job_id in seen:
                 continue
-            if not matches(job, config):
+            if not matches(job, company_config):
                 seen.add(job_id)
                 continue
             if not (token and chat_id):

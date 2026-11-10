@@ -1,35 +1,72 @@
 {
   "companies": [
     {
-      "name": "Greenhouse (working example)",
-      "provider": "greenhouse",
-      "site": "greenhouse",
-      "enabled": true
+      "name": "Empatica",
+      "provider": "workable",
+      "site": "empatica",
+      "region": "Italy",
+      "priority": 1,
+      "enabled": true,
+      "careers_url": "https://apply.workable.com/empatica/"
     },
     {
-      "name": "Lever (optional example)",
-      "provider": "lever",
-      "site": "lever",
-      "enabled": false
+      "name": "Satispay",
+      "provider": "ashby",
+      "site": "satispay",
+      "region": "Italy",
+      "priority": 1,
+      "enabled": true,
+      "careers_url": "https://jobs.ashbyhq.com/satispay"
     }
   ],
   "title_keywords": [
     "data analyst",
     "business analyst",
-    "business intelligence",
     "marketing analyst",
     "crm",
-    "analytics intern",
+    "business intelligence",
+    "bi analyst",
+    "data scientist",
+    "data science",
+    "analytics",
+    "insight",
+    "market research",
     "marketing intern",
-    "data science intern"
+    "marketing internship",
+    "marketing specialist",
+    "digital marketing",
+    "growth",
+    "graduate program",
+    "graduate programme",
+    "graduate internship",
+    "business operations",
+    "sales operations",
+    "revenue operations",
+    "marketing operations",
+    "consumer research",
+    "consumer insights",
+    "customer insights",
+    "commercial analyst",
+    "product analyst",
+    "strategy analyst",
+    "marketing coordinator",
+    "product marketing",
+    "brand marketing",
+    "business development intern",
+    "customer success intern"
   ],
   "exclude_title_keywords": [
     "senior",
+    "sr.",
     "staff",
     "principal",
     "director",
     "head of",
-    "lead"
+    "vice president",
+    "vp ",
+    "team lead",
+    "tech lead",
+    "engineering lead"
   ],
   "locations": [
     "italy",
@@ -37,6 +74,13 @@
     "milan",
     "milano",
     "turin",
-    "torino"
+    "torino",
+    "rome",
+    "roma",
+    "florence",
+    "firenze",
+    "bologna",
+    "naples",
+    "napoli"
   ]
 }

@@ -1,0 +1,42 @@
+region,company,status,careers_page
+Italy,Stellantis,NOT_YET_CONNECTED,https://careers.stellantis.com/it/risultati-ricerca-posizioni/
+Italy,Empatica,MONITORED_BY_SCRIPT,https://apply.workable.com/empatica/
+Italy,Gemmo AI,NOT_YET_CONNECTED,https://gemmo.ai/company/
+Italy,Contents.com,NOT_YET_CONNECTED,https://www.contents.com/careers/
+Italy,Satispay,MONITORED_BY_SCRIPT,https://jobs.ashbyhq.com/satispay
+Italy,Amazon / AWS,NOT_YET_CONNECTED,https://www.amazon.jobs/en/location/milan-italy
+Italy,indigo.ai,NOT_YET_CONNECTED,https://careers.indigo.ai/jobs
+Italy,Ditta,NOT_YET_CONNECTED,https://www.ditta.io/careers/
+Italy,dentsu / Merkle,NOT_YET_CONNECTED,https://www.merkle.com/en/careers/jobs.html
+Switzerland,P&G,NOT_YET_CONNECTED,
+Switzerland,Coty,NOT_YET_CONNECTED,
+Switzerland,Philip Morris International,NOT_YET_CONNECTED,
+Switzerland,JTI,NOT_YET_CONNECTED,
+Switzerland,Nestlé,NOT_YET_CONNECTED,
+Switzerland,Coca-Cola,NOT_YET_CONNECTED,
+Switzerland,Lindt,NOT_YET_CONNECTED,
+Switzerland,Siemens,NOT_YET_CONNECTED,
+Switzerland,Johnson & Johnson,NOT_YET_CONNECTED,
+Switzerland,MSC,NOT_YET_CONNECTED,
+Netherlands,Heineken,NOT_YET_CONNECTED,
+Netherlands,Nike,NOT_YET_CONNECTED,
+Netherlands,Philips,NOT_YET_CONNECTED,
+Netherlands,Booking.com,NOT_YET_CONNECTED,
+Netherlands,Tesla,NOT_YET_CONNECTED,
+Netherlands,Netflix,NOT_YET_CONNECTED,
+Netherlands,Adidas,NOT_YET_CONNECTED,
+Netherlands,IKEA,NOT_YET_CONNECTED,
+Netherlands,Tommy Hilfiger,NOT_YET_CONNECTED,
+Ireland,Google,NOT_YET_CONNECTED,
+Ireland,Meta,NOT_YET_CONNECTED,
+Ireland,Airbnb,NOT_YET_CONNECTED,
+Ireland,Indeed,NOT_YET_CONNECTED,
+Ireland,Apple,NOT_YET_CONNECTED,
+Ireland,Ryanair,NOT_YET_CONNECTED,
+Luxembourg,Amazon,NOT_YET_CONNECTED,
+Luxembourg,Ferrero,NOT_YET_CONNECTED,
+Luxembourg,PayPal,NOT_YET_CONNECTED,
+Nordics,Carlsberg,NOT_YET_CONNECTED,
+Nordics,Pandora,NOT_YET_CONNECTED,
+Nordics,H&M,NOT_YET_CONNECTED,
+Nordics,Spotify,NOT_YET_CONNECTED,
