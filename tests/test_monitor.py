@@ -42,6 +42,37 @@ class JobMonitorTests(unittest.TestCase):
         self.assertEqual(jobs[0]["location"], "Milan, Italy")
 
     @patch("monitor.requests.get")
+    def test_amazon_response_and_italy_filter(self, mocked_get):
+        reply = Mock()
+        reply.json.return_value = {"jobs": [
+            {"id_icims": 123, "title": "Business Analyst", "location": "Milan, MI, ITA", "country_code": "ITA", "job_path": "/en/jobs/123/business-analyst"},
+            {"id_icims": 999, "title": "Business Analyst", "location": "Paris, FRA", "country_code": "FRA", "job_path": "/en/jobs/999/business-analyst"}
+        ]}
+        mocked_get.return_value = reply
+        jobs = fetch_jobs({"name": "Amazon / AWS", "provider": "amazon", "site": "italy"})
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(jobs[0]["id"], "123")
+        self.assertIn("Italy", jobs[0]["location"])
+        self.assertEqual(jobs[0]["url"], "https://www.amazon.jobs/en/jobs/123/business-analyst")
+        self.assertEqual(mocked_get.call_args.kwargs["params"]["normalized_country_code[]"], "ITA")
+
+    @patch("monitor.requests.get")
+    def test_amazon_pagination(self, mocked_get):
+        first = Mock()
+        first.json.return_value = {"jobs": [
+            {"id_icims": i, "title": "Operations Analyst", "country_code": "ITA", "job_path": f"/en/jobs/{i}/role", "city": "Rome"}
+            for i in range(100)
+        ]}
+        second = Mock()
+        second.json.return_value = {"jobs": [
+            {"id_icims": 100, "title": "Marketing Analyst", "country_code": "ITA", "job_path": "/en/jobs/100/role", "city": "Milan"}
+        ]}
+        mocked_get.side_effect = [first, second]
+        jobs = fetch_jobs({"name": "Amazon / AWS", "provider": "amazon", "site": "italy"})
+        self.assertEqual(len(jobs), 101)
+        self.assertEqual(mocked_get.call_count, 2)
+
+    @patch("monitor.requests.get")
     def test_lever_response(self, mocked_get):
         reply = Mock()
         reply.json.return_value = [{"id": "abc", "text": "Marketing Analyst", "categories": {"allLocations": ["Milano"]}, "hostedUrl": "https://example.org/j/abc"}]
