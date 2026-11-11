@@ -3,6 +3,8 @@
 import argparse
 import json
 import os
+import re
+from html.parser import HTMLParser
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
@@ -13,6 +15,83 @@ ROOT = Path(__file__).resolve().parent
 CONFIG_PATH = ROOT / "config.json"
 STATE_PATH = ROOT / "data" / "seen_jobs.json"
 TIMEOUT = 25
+
+
+
+
+class ContentsCareersParser(HTMLParser):
+    """Read visible job accordions from the official Contents.com careers page.
+
+    This is purposefully scoped to #job_accordion > div.level so navigation,
+    footer and unrelated blog content cannot accidentally become vacancies.
+    """
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.div_depth = 0
+        self.accordion_depth = None
+        self.level_depth = None
+        self.expanded_depth = None
+        self.current = None
+        self.jobs = []
+        self.saw_accordion = False
+        self.ignored_text = 0
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag in ("script", "style"):
+            self.ignored_text += 1
+        if tag == "div":
+            self.div_depth += 1
+            classes = (attrs.get("class") or "").split()
+            if attrs.get("id") == "job_accordion":
+                self.saw_accordion = True
+                self.accordion_depth = self.div_depth
+            elif (self.accordion_depth is not None and self.current is None
+                  and "level" in classes and (attrs.get("id") or "").startswith("job-")):
+                self.level_depth = self.div_depth
+                self.current = {"id": attrs["id"], "title": "", "url": "", "description_parts": []}
+            elif self.current is not None and "expanded" in classes:
+                self.expanded_depth = self.div_depth
+        elif tag == "a" and self.current is not None:
+            classes = (attrs.get("class") or "").split()
+            if "opening" in classes:
+                self.current["title"] = (attrs.get("title") or "").strip()
+            elif "perma-to-job-opening" in classes:
+                self.current["url"] = (attrs.get("href") or "").strip()
+
+    def handle_data(self, data):
+        if self.current is not None and self.expanded_depth is not None and not self.ignored_text:
+            self.current["description_parts"].append(data)
+
+    def handle_endtag(self, tag):
+        if tag in ("script", "style"):
+            self.ignored_text = max(0, self.ignored_text - 1)
+        if tag != "div":
+            return
+        if self.current is not None and self.level_depth == self.div_depth:
+            self.jobs.append(self.current)
+            self.current = None
+            self.level_depth = None
+            self.expanded_depth = None
+        elif self.expanded_depth == self.div_depth:
+            self.expanded_depth = None
+        if self.accordion_depth == self.div_depth:
+            self.accordion_depth = None
+        self.div_depth = max(0, self.div_depth - 1)
+
+
+def contents_job_location(title, description):
+    """Infer only explicit geographic mentions; never filter by language."""
+    title = title.casefold()
+    intro = description[:1800].casefold()
+    if any(term in title for term in ("doha", "qatar", "gcc market")):
+        return "Doha, Qatar"
+    if any(term in title for term in ("milan", "milano")) or re.search(r"\b(?:base|based) in milan\b", intro):
+        return "Milan, Italy"
+    if any(term in title for term in ("italy", "italia")) or re.search(r"\b(?:in|across|within) italy\b", intro):
+        return "Italy"
+    return ""  # Unknown location: do not label this an Italy vacancy without evidence.
 
 
 def fetch_jobs(company):
@@ -190,6 +269,36 @@ def fetch_jobs(company):
                 break
         else:
             raise ValueError("Teamtailor feed exceeded the configured page limit")
+
+    elif provider == "contents":
+        # Contents.com lists vacancies as accessible HTML accordions, not an ATS API.
+        # Each role has a stable #job-... anchor. Never infer jobs from whole-page text.
+        careers_url = company.get("careers_url") or "https://www.contents.com/careers/"
+        response = requests.get(
+            careers_url,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; PersonalCareerMonitor/1.0)"},
+            timeout=TIMEOUT,
+        )
+        response.raise_for_status()
+        parser = ContentsCareersParser()
+        parser.feed(response.text)
+        parser.close()
+        if not parser.saw_accordion:
+            raise ValueError("Contents.com careers page structure changed; job accordion not found")
+        for item in parser.jobs:
+            title = item["title"]
+            job_id = item["id"]
+            if not title or not job_id:
+                continue
+            description = " ".join(" ".join(item["description_parts"]).split())
+            job_url = item["url"] or f"{careers_url.rstrip('/')}/#{job_id}"
+            results.append({
+                "id": job_id,
+                "title": title,
+                "location": contents_job_location(title, description),
+                "url": urljoin(careers_url, job_url),
+                "description": description,
+            })
 
     elif provider == "stellantis":
         # Stellantis publishes a public JSONP search feed via Symphony Talent.

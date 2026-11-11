@@ -44,6 +44,15 @@
       "priority": 1,
       "enabled": true,
       "careers_url": "https://careers.indigo.ai/jobs"
+    },
+    {
+      "name": "Contents.com",
+      "provider": "contents",
+      "site": "contents.com",
+      "region": "Italy",
+      "priority": 1,
+      "enabled": true,
+      "careers_url": "https://www.contents.com/careers/"
     }
   ],
   "title_keywords": [
@@ -295,7 +304,14 @@
     "solutions engineer",
     "solution engineer",
     "ai engineer",
-    "forward deployed"
+    "forward deployed",
+    "account executive",
+    "sales executive",
+    "go-to-market",
+    "gtm",
+    "revenue &",
+    "revenue manager",
+    "business development manager"
   ],
   "exclude_title_keywords": [
     "senior",

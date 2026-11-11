@@ -146,6 +146,42 @@ class JobMonitorTests(unittest.TestCase):
             fetch_jobs({"name": "indigo.ai", "provider": "teamtailor", "site": "careers.indigo.ai"})
 
     @patch("monitor.requests.get")
+    def test_contents_page_finds_italy_roles_and_skips_doha(self, mocked_get):
+        html = """<html><div id="job_accordion">
+        <div id="job-account-executive-italy-europe-uk" class="level">
+            <a class="opening" title="Account Executive – Italy, Europe &amp; UK"><span>Account Executive</span></a>
+            <div class="expanded pos_0">
+              <a href="https://www.contents.com/careers/#job-account-executive-italy-europe-uk" class="perma-to-job-opening">Apply</a>
+              <p>We are seeking an Account Executive with a base in Milan.</p>
+              <form><input type="text"></form>
+            </div>
+        </div>
+        <div id="job-sales-gcc" class="level">
+            <a class="opening" title="Sales Executive – GCC Market (Doha Hub)"></a>
+            <div class="expanded"><p>Based in Doha.</p></div>
+        </div>
+        <div id="job-business-development" class="level">
+            <a class="opening" title="Business development Manager - content &amp; creative services"></a>
+            <div class="expanded"><p>Support our growth across Italy and selected international markets.</p></div>
+        </div></div></html>"""
+        mocked_get.return_value.text = html
+        jobs = fetch_jobs({"name":"Contents.com", "provider":"contents", "site":"contents.com", "careers_url":"https://www.contents.com/careers/"})
+        self.assertEqual(len(jobs), 3)
+        self.assertEqual([job["location"] for job in jobs], ["Milan, Italy", "Doha, Qatar", "Italy"])
+        self.assertEqual(jobs[0]["id"], "job-account-executive-italy-europe-uk")
+        self.assertEqual(jobs[1]["url"], "https://www.contents.com/careers/#job-sales-gcc")
+        config = {"title_keywords":["account executive", "sales executive", "business development"],
+                  "exclude_title_keywords":["senior"], "locations":["italy","milan"]}
+        self.assertEqual([job["title"] for job in jobs if matches(job,config)],
+                         ["Account Executive – Italy, Europe & UK", "Business development Manager - content & creative services"])
+
+    @patch("monitor.requests.get")
+    def test_contents_structure_change_fails_loudly(self, mocked_get):
+        mocked_get.return_value.text = '<html><body>New page</body></html>'
+        with self.assertRaisesRegex(ValueError, "accordion not found"):
+            fetch_jobs({"name":"Contents.com", "provider":"contents", "site":"contents.com"})
+
+    @patch("monitor.requests.get")
     def test_lever_response(self, mocked_get):
         reply = Mock()
         reply.json.return_value = [{"id": "abc", "text": "Marketing Analyst", "categories": {"allLocations": ["Milano"]}, "hostedUrl": "https://example.org/j/abc"}]
