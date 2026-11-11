@@ -73,6 +73,49 @@ class JobMonitorTests(unittest.TestCase):
         self.assertEqual(mocked_get.call_count, 2)
 
     @patch("monitor.requests.get")
+    def test_stellantis_pagination_and_italy_only(self, mocked_get):
+        def make_reply(jobs, hits):
+            reply = Mock()
+            reply.text = 'CWS.jobs.jobCallback(' + __import__('json').dumps({
+                'totalHits': hits, 'searchResults': [{'job': job} for job in jobs]
+            }) + ');'
+            return reply
+
+        first_page = [
+            {'id': 1001, 'title': 'Project Analyst', 'primary_country': 'IT',
+             'primary_city': 'Torino', 'url': 'https://careers.stellantis.com/job/1001/',
+             'description': 'Early career project management'}
+        ] + [
+            {'id': i, 'title': 'Engineering role', 'primary_country': 'US',
+             'url': f'https://careers.stellantis.com/job/{i}/'}
+            for i in range(2000, 2099)
+        ]
+        second_page = [{
+            'id': 1002, 'title': 'Marketing Internship', 'primary_country': 'US',
+            'google_locations': [{'city':'Milano','country':'IT'}],
+            'url': 'https://careers.stellantis.com/job/1002/'
+        }]
+        mocked_get.side_effect = [make_reply(first_page, 101), make_reply(second_page, 101)]
+        jobs = fetch_jobs({
+            'name': 'Stellantis', 'provider': 'stellantis',
+            'site': 'companies/16115603-6c1b-4c45-b544-238a4e6c51b3'
+        })
+        self.assertEqual(len(jobs), 2)
+        self.assertEqual(jobs[0]['location'], 'Torino, Italy')
+        self.assertEqual(jobs[1]['location'], 'Milano, Italy')
+        self.assertEqual(mocked_get.call_count, 2)
+        self.assertEqual(mocked_get.call_args.kwargs['params']['offset'], 100)
+
+    @patch("monitor.requests.get")
+    def test_stellantis_bad_response_does_not_look_like_zero_jobs(self, mocked_get):
+        mocked_get.return_value.text = '<html>Unavailable</html>'
+        with self.assertRaisesRegex(ValueError, 'JSONP'):
+            fetch_jobs({
+                'name': 'Stellantis', 'provider': 'stellantis',
+                'site': 'companies/16115603-6c1b-4c45-b544-238a4e6c51b3'
+            })
+
+    @patch("monitor.requests.get")
     def test_lever_response(self, mocked_get):
         reply = Mock()
         reply.json.return_value = [{"id": "abc", "text": "Marketing Analyst", "categories": {"allLocations": ["Milano"]}, "hostedUrl": "https://example.org/j/abc"}]

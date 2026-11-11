@@ -26,6 +26,15 @@
       "priority": 1,
       "enabled": true,
       "careers_url": "https://www.amazon.jobs/en/search?country%5B%5D=ITA"
+    },
+    {
+      "name": "Stellantis",
+      "provider": "stellantis",
+      "site": "companies/16115603-6c1b-4c45-b544-238a4e6c51b3",
+      "region": "Italy",
+      "priority": 1,
+      "enabled": true,
+      "careers_url": "https://careers.stellantis.com/job-search-results/"
     }
   ],
   "title_keywords": [

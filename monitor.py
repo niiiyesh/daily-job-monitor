@@ -139,6 +139,86 @@ def fetch_jobs(company):
             if len(page) < limit:
                 break
 
+    elif provider == "stellantis":
+        # Stellantis publishes a public JSONP search feed via Symphony Talent.
+        # The request below was verified against its official careers site.
+        # Scan the full public feed, then retain only jobs located in Italy.
+        endpoint = "https://jobsapi-google.m-cloud.io/api/job/search"
+        page_size = 100
+        max_pages = 30
+        italy_names = {"IT", "ITA", "ITALY", "ITALIA"}
+        seen_ids = set()
+        total_hits = None
+
+        for page_number in range(max_pages):
+            offset = page_number * page_size
+            response = requests.get(
+                endpoint,
+                params={
+                    "callback": "CWS.jobs.jobCallback",
+                    "pageSize": page_size,
+                    "offset": offset,
+                    "companyName": site,
+                    "orderBy": "posting_publish_time desc",
+                    "queryLanguageCode": "en-US",
+                    "disableSpellCheck": "true",
+                    "enableBroadening": "true",
+                },
+                headers={"User-Agent": "Mozilla/5.0 (compatible; PersonalCareerMonitor/1.0)"},
+                timeout=TIMEOUT,
+            )
+            response.raise_for_status()
+
+            # The endpoint returns JSONP rather than plain JSON.
+            body = response.text.strip().rstrip(";").strip()
+            callback = "CWS.jobs.jobCallback("
+            if not (body.startswith(callback) and body.endswith(")")):
+                raise ValueError("Stellantis returned an unexpected JSONP response")
+            payload = json.loads(body[len(callback):-1])
+            page = payload.get("searchResults")
+            total_hits = payload.get("totalHits")
+            if not isinstance(page, list) or not isinstance(total_hits, int):
+                raise ValueError("Stellantis returned an unexpected search response")
+            if not page and offset < total_hits:
+                raise ValueError("Stellantis pagination stopped before the full result set")
+
+            for item in page:
+                job = item.get("job") or {}
+                job_id = job.get("id")
+                job_url = job.get("url") or ""
+                if job_id is None or not job_url or job_id in seen_ids:
+                    continue
+                seen_ids.add(job_id)
+
+                locations = job.get("google_locations") or []
+                italian_locations = [
+                    loc for loc in locations
+                    if str(loc.get("country", "")).upper() in italy_names
+                ]
+                primary_country = str(job.get("primary_country") or "").upper()
+                if primary_country not in italy_names and not italian_locations:
+                    continue
+
+                city_names = [str(loc.get("city") or "").strip() for loc in italian_locations]
+                primary_city = str(job.get("primary_city") or "").strip()
+                if primary_country in italy_names and primary_city:
+                    city_names.insert(0, primary_city)
+                city_names = list(dict.fromkeys(city for city in city_names if city))
+                location = (", ".join(city_names) + ", Italy") if city_names else "Italy"
+
+                results.append({
+                    "id": str(job_id),
+                    "title": job.get("title") or "",
+                    "location": location,
+                    "url": job_url,
+                    "description": job.get("description") or "",
+                })
+
+            if offset + len(page) >= total_hits:
+                break
+        else:
+            raise ValueError("Stellantis has more postings than the configured page limit")
+
     else:
         raise ValueError(f"Unsupported provider '{provider}' for {company['name']}")
 
