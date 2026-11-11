@@ -116,6 +116,36 @@ class JobMonitorTests(unittest.TestCase):
             })
 
     @patch("monitor.requests.get")
+    def test_teamtailor_rss_and_italy_location(self, mocked_get):
+        xml = b'''<?xml version="1.0" encoding="UTF-8"?>
+        <rss version="2.0" xmlns:tt="https://teamtailor.com/locations"><channel>
+        <title>indigo.ai</title>
+        <item><title>AI Implementation Intern - Milan</title>
+        <guid>job-123</guid><link>https://careers.indigo.ai/jobs/123</link>
+        <description>Apply today</description>
+        <tt:locations><tt:location><tt:city>Milano</tt:city><tt:country>Italy</tt:country></tt:location></tt:locations>
+        </item>
+        </channel></rss>'''
+        mocked_get.return_value.content = xml
+        jobs = fetch_jobs({"name": "indigo.ai", "provider": "teamtailor", "site": "careers.indigo.ai"})
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(jobs[0]["id"], "job-123")
+        self.assertEqual(jobs[0]["location"], "Milano, Italy")
+        self.assertEqual(jobs[0]["url"], "https://careers.indigo.ai/jobs/123")
+        self.assertIn("jobs.rss", mocked_get.call_args.args[0])
+        self.assertTrue(matches(jobs[0], {
+            "title_keywords": ["intern"],
+            "exclude_title_keywords": ["senior"],
+            "locations": ["italy"]
+        }))
+
+    @patch("monitor.requests.get")
+    def test_teamtailor_rejects_invalid_feed(self, mocked_get):
+        mocked_get.return_value.content = b"<html><body>Not a jobs feed</body></html>"
+        with self.assertRaisesRegex(ValueError, "RSS feed"):
+            fetch_jobs({"name": "indigo.ai", "provider": "teamtailor", "site": "careers.indigo.ai"})
+
+    @patch("monitor.requests.get")
     def test_lever_response(self, mocked_get):
         reply = Mock()
         reply.json.return_value = [{"id": "abc", "text": "Marketing Analyst", "categories": {"allLocations": ["Milano"]}, "hostedUrl": "https://example.org/j/abc"}]

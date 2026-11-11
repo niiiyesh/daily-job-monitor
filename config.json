@@ -35,6 +35,15 @@
       "priority": 1,
       "enabled": true,
       "careers_url": "https://careers.stellantis.com/job-search-results/"
+    },
+    {
+      "name": "indigo.ai",
+      "provider": "teamtailor",
+      "site": "careers.indigo.ai",
+      "region": "Italy",
+      "priority": 1,
+      "enabled": true,
+      "careers_url": "https://careers.indigo.ai/jobs"
     }
   ],
   "title_keywords": [
@@ -278,7 +287,15 @@
     "tirocinio marketing",
     "tirocinio logistica",
     "tirocinio operations",
-    "laureati ingegneria gestionale"
+    "laureati ingegneria gestionale",
+    "ai implementation",
+    "implementation intern",
+    "implementation specialist",
+    "implementation engineer",
+    "solutions engineer",
+    "solution engineer",
+    "ai engineer",
+    "forward deployed"
   ],
   "exclude_title_keywords": [
     "senior",

@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import xml.etree.ElementTree as ET
 
 import requests
 from urllib.parse import urljoin
@@ -138,6 +139,57 @@ def fetch_jobs(company):
                 })
             if len(page) < limit:
                 break
+
+    elif provider == "teamtailor":
+        # Teamtailor publishes a public RSS feed for its hosted careers sites.
+        # This also works on custom careers domains such as careers.indigo.ai.
+        # The official feed supports offset/per_page pagination without an API key.
+        if not site or any(c in site for c in "/?&#"):
+            raise ValueError("Teamtailor site must be a hostname, e.g. careers.indigo.ai")
+        feed_url = f"https://{site}/jobs.rss"
+        page_size = 100
+        max_pages = 30
+        ns = {"tt": "https://teamtailor.com/locations"}
+        seen_ids = set()
+        for page_number in range(max_pages):
+            response = requests.get(
+                feed_url,
+                params={"offset": page_number * page_size, "per_page": page_size},
+                headers={"User-Agent": "PersonalCareerMonitor/1.0"},
+                timeout=TIMEOUT,
+            )
+            response.raise_for_status()
+            try:
+                root = ET.fromstring(response.content)
+            except ET.ParseError as error:
+                raise ValueError("Teamtailor returned invalid RSS/XML") from error
+            if root.tag != "rss" or root.find("channel") is None:
+                raise ValueError("Teamtailor returned an unexpected RSS feed")
+            items = root.findall("./channel/item")
+            for item in items:
+                job_id = (item.findtext("guid") or item.findtext("link") or "").strip()
+                job_url = (item.findtext("link") or "").strip()
+                if not job_id or not job_url or job_id in seen_ids:
+                    continue
+                seen_ids.add(job_id)
+                locations = []
+                for location in item.findall("tt:locations/tt:location", ns):
+                    city = (location.findtext("tt:city", default="", namespaces=ns) or "").strip()
+                    country = (location.findtext("tt:country", default="", namespaces=ns) or "").strip()
+                    label = ", ".join(part for part in [city, country] if part)
+                    if label and label not in locations:
+                        locations.append(label)
+                results.append({
+                    "id": job_id,
+                    "title": (item.findtext("title") or "").strip(),
+                    "location": "; ".join(locations),
+                    "url": job_url,
+                    "description": item.findtext("description") or "",
+                })
+            if len(items) < page_size:
+                break
+        else:
+            raise ValueError("Teamtailor feed exceeded the configured page limit")
 
     elif provider == "stellantis":
         # Stellantis publishes a public JSONP search feed via Symphony Talent.
