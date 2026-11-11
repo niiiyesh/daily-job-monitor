@@ -7,6 +7,7 @@ import os
 import re
 from html.parser import HTMLParser
 from pathlib import Path
+from urllib.parse import urlparse
 import xml.etree.ElementTree as ET
 
 import requests
@@ -161,6 +162,67 @@ def ditta_normalize_location(location):
     if any(city in lower for city in cities):
         return f"{loc}, Italy"
     return loc
+
+
+class StellantisTorinoParser(HTMLParser):
+    """Extract Stellantis job links curated by the City of Turin.
+
+    These are *supplementary* listings, not a live official Stellantis job feed.
+    Only LinkedIn vacancy links inside the page's article are accepted.
+    """
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.article_depth = 0
+        self.saw_article = False
+        self.active_id = None
+        self.active_title = []
+        self.jobs = []
+        self.seen_ids = set()
+        self.updated = ""
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == "article":
+            self.article_depth += 1
+            self.saw_article = True
+        if not self.article_depth:
+            return
+        if tag == "time" and not self.updated:
+            stamp = (attrs.get("datetime") or "")[:10]
+            if re.fullmatch(r"\d{4}-\d{2}-\d{2}", stamp):
+                self.updated = stamp
+        if tag != "a":
+            return
+        href = attrs.get("href") or ""
+        parsed = urlparse(href)
+        if parsed.hostname not in {"www.linkedin.com", "linkedin.com", "it.linkedin.com"}:
+            return
+        found = re.fullmatch(r"/jobs/view/(\d{7,})/?", parsed.path)
+        if found:
+            self.active_id = found.group(1)
+            self.active_title = []
+
+    def handle_data(self, data):
+        if self.active_id is not None:
+            self.active_title.append(data)
+
+    def handle_endtag(self, tag):
+        if tag == "a" and self.active_id is not None:
+            title = " ".join(" ".join(self.active_title).split())
+            if title and self.active_id not in self.seen_ids:
+                self.seen_ids.add(self.active_id)
+                self.jobs.append({
+                    "id": f"linkedin-{self.active_id}",
+                    "title": title,
+                    "location": "Torino area, Italy",
+                    "url": f"https://www.linkedin.com/jobs/view/{self.active_id}/",
+                    "description": "",
+                })
+            self.active_id = None
+            self.active_title = []
+        if tag == "article" and self.article_depth:
+            self.article_depth -= 1
 
 
 def fetch_jobs(company):
@@ -465,6 +527,33 @@ def fetch_jobs(company):
         else:
             raise ValueError("Workday Italy results exceeded the configured page limit")
 
+
+    elif provider == "stellantis_torino":
+        # The official Stellantis international API currently has no Italy posts.
+        # As a supplement, monitor vacancies curated by the City of Turin.
+        # This is not a complete or real-time inventory of Stellantis Italy.
+        careers_url = company.get("careers_url") or (
+            "https://www.torinogiovani.it/index.php/lavoro/ricerca-del-lavoro/"
+            "offerte-di-lavoro-stellantis"
+        )
+        response = requests.get(
+            careers_url,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; PersonalCareerMonitor/1.0)"},
+            timeout=TIMEOUT,
+        )
+        response.raise_for_status()
+        parser = StellantisTorinoParser()
+        parser.feed(response.text)
+        parser.close()
+        if not parser.saw_article:
+            raise ValueError("City of Turin vacancy page structure changed: article missing")
+        if not parser.jobs:
+            raise ValueError("City of Turin vacancy page has no recognizable LinkedIn job links")
+        for item in parser.jobs:
+            # Source date documents the curation date, not the posting date.
+            item["source_last_updated"] = parser.updated
+            results.append(item)
+
     elif provider == "stellantis":
         # Stellantis publishes a public JSONP search feed via Symphony Talent.
         # The request below was verified against its official careers site.
@@ -607,6 +696,10 @@ def main(dry_run=False):
         company_config = {**config, "locations": company.get("locations", config.get("locations", []))}
         relevant = [job for job in jobs if matches(job, company_config)]
         print(f"{company['name']}: {len(jobs)} total, {len(relevant)} matching roles.")
+        if company["provider"].lower() == "stellantis_torino":
+            updated = next((job.get("source_last_updated") for job in jobs if job.get("source_last_updated")), "unknown")
+            print(f"  Supplementary City of Turin list, last updated: {updated}. "
+                  "Jobs may be stale; confirm each vacancy is still open.")
         if dry_run:
             for job in relevant[:10]:
                 print(f"  {job['title']} | {job['location']} | {job['url']}")

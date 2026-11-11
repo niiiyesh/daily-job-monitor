@@ -280,5 +280,43 @@ class JobMonitorTests(unittest.TestCase):
         self.assertEqual(jobs[0]["location"], "Milano")
 
 
+
+
+class TestStellantisTorinoSupplement(unittest.TestCase):
+    @patch("monitor.requests.get")
+    def test_extracts_only_real_linkedin_vacancies_with_stable_ids(self, mocked_get):
+        mocked_get.return_value.text = '''<html><body>
+        <nav><a href="https://www.linkedin.com/jobs/view/1234567890/">Navigation should be ignored</a></nav>
+        <article><p><strong>Stage a Torino, Rivalta e Carmagnola</strong></p>
+          <p><a href="https://www.linkedin.com/jobs/view/4471716204/?trackingId=ABC&amp;source=search"><strong>Curricular Internship - Planning &amp; Targets Analyst</strong></a></p>
+          <p><a href="https://www.linkedin.com/jobs/view/4472690875/?refId=xyz"><strong>Curricular Internship - Digital &amp; CRM</strong></a></p>
+          <p><a href="https://www.linkedin.com/jobs/view/4471716204/?anotherTracking=123">Duplicate</a></p>
+          <p><a href="https://not-linkedin.example/jobs/view/9999999999/">External link ignored</a></p>
+          <footer><time datetime="2026-10-12T12:00:00Z">12/10/2026</time></footer>
+        </article></body></html>'''
+        jobs = fetch_jobs({"provider": "stellantis_torino", "site": "torinogiovani", "name": "Stellantis — Turin"})
+        self.assertEqual(len(jobs), 2)
+        self.assertEqual(jobs[0]["id"], "linkedin-4471716204")
+        self.assertEqual(jobs[0]["title"], "Curricular Internship - Planning & Targets Analyst")
+        self.assertEqual(jobs[0]["url"], "https://www.linkedin.com/jobs/view/4471716204/")
+        self.assertEqual(jobs[0]["location"], "Torino area, Italy")
+        self.assertEqual(jobs[0]["source_last_updated"], "2026-10-12")
+        self.assertTrue(matches(jobs[0], {"title_keywords": ["planning"],
+                                         "exclude_title_keywords": ["senior"],
+                                         "locations": ["italy"]}))
+        self.assertEqual(mocked_get.call_count, 1)
+
+    @patch("monitor.requests.get")
+    def test_no_job_links_fails_loudly(self, mocked_get):
+        mocked_get.return_value.text = "<article><h1>Offerte di lavoro Stellantis</h1></article>"
+        with self.assertRaisesRegex(ValueError, "no recognizable LinkedIn job links"):
+            fetch_jobs({"provider": "stellantis_torino", "site": "torinogiovani", "name": "Stellantis — Turin"})
+
+    @patch("monitor.requests.get")
+    def test_article_missing_fails_loudly(self, mocked_get):
+        mocked_get.return_value.text = "<html><body>Site undergoing maintenance</body></html>"
+        with self.assertRaisesRegex(ValueError, "article missing"):
+            fetch_jobs({"provider": "stellantis_torino", "site": "torinogiovani", "name": "Stellantis — Turin"})
+
 if __name__ == "__main__":
     unittest.main()

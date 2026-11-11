@@ -37,6 +37,15 @@
       "careers_url": "https://careers.stellantis.com/job-search-results/"
     },
     {
+      "name": "Stellantis — Turin listings (supplement)",
+      "provider": "stellantis_torino",
+      "site": "torinogiovani",
+      "region": "Italy",
+      "priority": 1,
+      "enabled": true,
+      "careers_url": "https://www.torinogiovani.it/index.php/lavoro/ricerca-del-lavoro/offerte-di-lavoro-stellantis"
+    },
+    {
       "name": "indigo.ai",
       "provider": "teamtailor",
       "site": "careers.indigo.ai",
