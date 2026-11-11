@@ -228,6 +228,48 @@ class JobMonitorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "country facets"):
             fetch_jobs({"name": "dentsu / Merkle", "provider": "workday", "site": "dentsuaegis"})
 
+
+    @patch("monitor.requests.get")
+    def test_ditta_jobs_and_italy_filter_without_language_restriction(self, mocked_get):
+        html = """<html><div data-roles>
+        <details class="ruolo group border-b"><summary><span>
+          <span class="block font-semibold text-ink">Marketing Intern</span>
+          <span class="mt-1 text-ink-dim">Milan / Remote</span>
+        </span><span class="ruolo-segno">v</span></summary>
+        <div class="ruolo-dettagli">Requires excellent written Italian.</div></details>
+        <details class="ruolo group"><summary><span>
+          <span class="font-semibold text-ink">Founder Associate</span>
+          <span class="text-ink-dim">Milan / Hybrid</span>
+        </span></summary><div class="ruolo-dettagli">Details</div></details>
+        <details class="ruolo"><summary><span>
+          <span class="font-semibold">International Sales</span>
+          <span class="text-ink-dim">London</span>
+        </span></summary></details></div>
+        <h2>Open application</h2></html>"""
+        mocked_get.return_value.text = html
+        jobs = fetch_jobs({"name": "Ditta", "provider": "ditta", "site": "ditta.io",
+                           "careers_url": "https://ditta.io/en/careers/"})
+        self.assertEqual(len(jobs), 3)
+        self.assertEqual(jobs[0]["location"], "Milan / Remote, Italy")
+        self.assertEqual(jobs[0]["url"], "https://ditta.io/en/careers/#posizioni")
+        self.assertNotEqual(jobs[0]["id"], jobs[1]["id"])
+        cfg = {"title_keywords": ["marketing", "founder"],
+               "exclude_title_keywords": ["senior", "head of"], "locations": ["italy", "milan"]}
+        self.assertEqual([j["title"] for j in jobs if matches(j, cfg)],
+                         ["Marketing Intern", "Founder Associate"])
+
+    @patch("monitor.requests.get")
+    def test_ditta_missing_structure_fails_loudly(self, mocked_get):
+        mocked_get.return_value.text = "<html><div>No careers listing</div></html>"
+        with self.assertRaisesRegex(ValueError, "jobs container missing"):
+            fetch_jobs({"name": "Ditta", "provider": "ditta", "site": "ditta.io"})
+
+    @patch("monitor.requests.get")
+    def test_ditta_changed_role_markup_fails_loudly(self, mocked_get):
+        mocked_get.return_value.text = "<html><div data-roles><p>Changed layout</p></div></html>"
+        with self.assertRaisesRegex(ValueError, "no recognizable positions"):
+            fetch_jobs({"name": "Ditta", "provider": "ditta", "site": "ditta.io"})
+
     @patch("monitor.requests.get")
     def test_lever_response(self, mocked_get):
         reply = Mock()

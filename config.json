@@ -64,6 +64,15 @@
       "priority": 1,
       "enabled": true,
       "careers_url": "https://dentsuaegis.wd3.myworkdayjobs.com/en-US/DAN_GLOBAL"
+    },
+    {
+      "name": "Ditta",
+      "provider": "ditta",
+      "site": "ditta.io",
+      "region": "Italy",
+      "priority": 1,
+      "enabled": true,
+      "careers_url": "https://ditta.io/en/careers/"
     }
   ],
   "title_keywords": [
@@ -322,7 +331,12 @@
     "gtm",
     "revenue &",
     "revenue manager",
-    "business development manager"
+    "business development manager",
+    "founder associate",
+    "founder's associate",
+    "founders associate",
+    "chief of staff",
+    "business operations associate"
   ],
   "exclude_title_keywords": [
     "senior",

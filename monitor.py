@@ -1,6 +1,7 @@
 """Check public ATS job boards and alert on newly published matching roles."""
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -92,6 +93,74 @@ def contents_job_location(title, description):
     if any(term in title for term in ("italy", "italia")) or re.search(r"\b(?:in|across|within) italy\b", intro):
         return "Italy"
     return ""  # Unknown location: do not label this an Italy vacancy without evidence.
+
+
+class DittaCareersParser(HTMLParser):
+    """Collect open roles from the official Ditta careers page.
+
+    Ditta renders its vacancies as HTML <details class="ruolo"> elements
+    within a <div data-roles> container. Only summary titles and locations
+    are used; application forms, page navigation and spontaneous applications
+    are not treated as separate jobs.
+    """
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.saw_roles = False
+        self.current = None
+        self.in_summary = False
+        self.span_stack = []
+        self.capture = None
+        self.jobs = []
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == "div" and "data-roles" in attrs:
+            self.saw_roles = True
+        if tag == "details" and self.saw_roles and "ruolo" in (attrs.get("class") or "").split():
+            self.current = {"title_parts": [], "location_parts": []}
+        elif tag == "summary" and self.current is not None:
+            self.in_summary = True
+        elif tag == "span" and self.in_summary:
+            self.span_stack.append(self.capture)
+            classes = (attrs.get("class") or "").split()
+            if "font-semibold" in classes:
+                self.capture = "title_parts"
+            elif "text-ink-dim" in classes:
+                self.capture = "location_parts"
+
+    def handle_data(self, data):
+        if self.current is not None and self.in_summary and self.capture:
+            self.current[self.capture].append(data)
+
+    def handle_endtag(self, tag):
+        if tag == "span" and self.in_summary and self.span_stack:
+            self.capture = self.span_stack.pop()
+        elif tag == "summary":
+            self.in_summary = False
+            self.capture = None
+            self.span_stack = []
+        elif tag == "details" and self.current is not None:
+            title = " ".join(" ".join(self.current["title_parts"]).split())
+            location = " ".join(" ".join(self.current["location_parts"]).split())
+            if title and location:
+                self.jobs.append((title, location))
+            self.current = None
+            self.in_summary = False
+            self.capture = None
+            self.span_stack = []
+
+
+def ditta_normalize_location(location):
+    """Label only explicitly Italian cities/country to support Italy filters."""
+    loc = location.strip()
+    lower = loc.casefold()
+    cities = ("milan", "milano", "florence", "firenze", "rome", "roma", "turin", "torino", "bologna", "naples", "napoli")
+    if "italy" in lower or "italia" in lower:
+        return loc
+    if any(city in lower for city in cities):
+        return f"{loc}, Italy"
+    return loc
 
 
 def fetch_jobs(company):
@@ -298,6 +367,35 @@ def fetch_jobs(company):
                 "location": contents_job_location(title, description),
                 "url": urljoin(careers_url, job_url),
                 "description": description,
+            })
+
+
+    elif provider == "ditta":
+        # Ditta publishes vacancies in server-rendered HTML summary elements.
+        careers_url = company.get("careers_url") or "https://ditta.io/en/careers/"
+        response = requests.get(
+            careers_url,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; PersonalCareerMonitor/1.0)"},
+            timeout=TIMEOUT,
+        )
+        response.raise_for_status()
+        parser = DittaCareersParser()
+        parser.feed(response.text)
+        parser.close()
+        if not parser.saw_roles:
+            raise ValueError("Ditta careers page structure changed: jobs container missing")
+        if not parser.jobs:
+            # Avoid silently treating a changed site structure as zero vacancies.
+            raise ValueError("Ditta careers page returned no recognizable positions")
+        for title, location in parser.jobs:
+            stable_key = f"{title.casefold()}|{location.casefold()}"
+            job_id = hashlib.sha256(stable_key.encode("utf-8")).hexdigest()[:20]
+            results.append({
+                "id": job_id,
+                "title": title,
+                "location": ditta_normalize_location(location),
+                "url": f"{careers_url.rstrip('/')}/#posizioni",
+                "description": "",
             })
 
     elif provider == "workday":
