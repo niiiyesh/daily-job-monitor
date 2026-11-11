@@ -300,6 +300,73 @@ def fetch_jobs(company):
                 "description": description,
             })
 
+    elif provider == "workday":
+        # dentsu/Merkle uses the official Workday CXS jobs API. Query its
+        # locationCountry facets, then fetch ALL pages of the Italy facet.
+        # This avoids making guesses about city names or language requirements.
+        base_url = f"https://{site}.wd3.myworkdayjobs.com"
+        careers_id = company.get("workday_careers_id", "DAN_GLOBAL")
+        tenant = company.get("workday_tenant", site)
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", site) or not re.fullmatch(r"[A-Za-z0-9_-]+", tenant) or not re.fullmatch(r"[A-Za-z0-9_-]+", careers_id):
+            raise ValueError("Invalid Workday site or tenant identifier")
+        api_url = f"{base_url}/wday/cxs/{tenant}/{careers_id}/jobs"
+        headers = {"Content-Type": "application/json", "Accept": "application/json", "User-Agent": "PersonalCareerMonitor/1.0"}
+        page_size = 20
+        def search_workday(offset, facets):
+            response = requests.post(
+                api_url,
+                json={"appliedFacets": facets, "limit": page_size, "offset": offset, "searchText": ""},
+                headers=headers, timeout=TIMEOUT,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, dict) or not isinstance(payload.get("total"), int) or not isinstance(payload.get("jobPostings"), list):
+                raise ValueError("Workday returned an unexpected jobs response")
+            return payload
+
+        initial = search_workday(0, {})
+        locations_group = next((x for x in initial.get("facets", []) if x.get("facetParameter") == "locationMainGroup"), None)
+        if not isinstance(locations_group, dict):
+            raise ValueError("Workday country facets are missing; cannot verify Italy vacancies")
+        country_group = next((x for x in locations_group.get("values", []) if x.get("facetParameter") == "locationCountry"), None)
+        if not isinstance(country_group, dict):
+            raise ValueError("Workday country filter is missing; refusing unverified jobs")
+        italy = next((x for x in country_group.get("values", []) if str(x.get("descriptor", "")).casefold() in ("italy", "italia")), None)
+        if italy is None:
+            # Verified country facet has no Italy openings right now.
+            return []
+        if not italy.get("id"):
+            raise ValueError("Workday Italy facet ID is missing")
+        italy_facets = {"locationCountry": [italy["id"]]}
+        seen_ids = set()
+        for offset in range(0, 10000, page_size):
+            payload = search_workday(offset, italy_facets)
+            page = payload["jobPostings"]
+            total = payload["total"]
+            if offset < total and not page:
+                raise ValueError("Workday returned incomplete Italy pagination")
+            for job in page:
+                path = str(job.get("externalPath") or "")
+                if not path.startswith("/job/"):
+                    continue
+                job_id = (job.get("bulletFields") or [None])[0] or path
+                if job_id in seen_ids:
+                    continue
+                seen_ids.add(job_id)
+                place = (job.get("locationsText") or "").strip()
+                location = f"{place}, Italy" if place and "location" not in place.casefold() else "Italy"
+                results.append({
+                    "id": str(job_id),
+                    "title": job.get("title") or "",
+                    "location": location,
+                    "url": f"{base_url}/en-US/{careers_id}{path}",
+                    "description": "",  # job listing API has no full description; titles drive filters.
+                })
+            if offset + len(page) >= total:
+                break
+        else:
+            raise ValueError("Workday Italy results exceeded the configured page limit")
+
     elif provider == "stellantis":
         # Stellantis publishes a public JSONP search feed via Symphony Talent.
         # The request below was verified against its official careers site.

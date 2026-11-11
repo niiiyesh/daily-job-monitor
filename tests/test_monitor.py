@@ -181,6 +181,53 @@ class JobMonitorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "accordion not found"):
             fetch_jobs({"name":"Contents.com", "provider":"contents", "site":"contents.com"})
 
+    @patch("monitor.requests.post")
+    def test_workday_italy_facet_and_pagination(self, mocked_post):
+        def page(data):
+            reply = Mock()
+            reply.json.return_value = data
+            return reply
+        location_facets = [{
+            "facetParameter": "locationMainGroup", "values": [{
+                "facetParameter": "locationCountry", "values": [
+                    {"descriptor": "Italy", "id": "country-IT", "count": 2},
+                    {"descriptor": "France", "id": "country-FR", "count": 4},
+                ]
+            }]
+        }]
+        mocked_post.side_effect = [
+            page({"total": 6, "jobPostings": [], "facets": location_facets}),
+            page({"total": 2, "jobPostings": [
+                {"title": "Junior Business Analyst", "externalPath": "/job/Milan/Business-Analyst_R123", "locationsText": "Milan", "bulletFields": ["R123"]},
+                {"title": "Digital Marketing Intern", "externalPath": "/job/Rome/Marketing-Intern_R124", "locationsText": "Rome", "bulletFields": ["R124"]},
+            ]}),
+        ]
+        jobs = fetch_jobs({"name": "dentsu / Merkle", "provider": "workday", "site": "dentsuaegis"})
+        self.assertEqual(len(jobs), 2)
+        self.assertEqual(jobs[0]["id"], "R123")
+        self.assertEqual(jobs[0]["location"], "Milan, Italy")
+        self.assertEqual(jobs[1]["url"], "https://dentsuaegis.wd3.myworkdayjobs.com/en-US/DAN_GLOBAL/job/Rome/Marketing-Intern_R124")
+        self.assertEqual(mocked_post.call_count, 2)
+        self.assertEqual(mocked_post.call_args.kwargs["json"]["appliedFacets"], {"locationCountry": ["country-IT"]})
+
+    @patch("monitor.requests.post")
+    def test_workday_no_italy_facet_is_zero(self, mocked_post):
+        mocked_post.return_value.json.return_value = {
+            "total": 1, "jobPostings": [{"title": "Designer", "locationsText": "Paris"}],
+            "facets": [{"facetParameter": "locationMainGroup", "values": [
+                {"facetParameter": "locationCountry", "values": [{"descriptor": "France", "id": "fr", "count": 1}]}
+            ]}],
+        }
+        jobs = fetch_jobs({"name": "dentsu / Merkle", "provider": "workday", "site": "dentsuaegis"})
+        self.assertEqual(jobs, [])
+        self.assertEqual(mocked_post.call_count, 1)
+
+    @patch("monitor.requests.post")
+    def test_workday_missing_facets_fail_instead_of_silently_ignoring_jobs(self, mocked_post):
+        mocked_post.return_value.json.return_value = {"total": 10, "jobPostings": [], "facets": []}
+        with self.assertRaisesRegex(ValueError, "country facets"):
+            fetch_jobs({"name": "dentsu / Merkle", "provider": "workday", "site": "dentsuaegis"})
+
     @patch("monitor.requests.get")
     def test_lever_response(self, mocked_get):
         reply = Mock()

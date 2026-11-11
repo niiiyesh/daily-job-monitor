@@ -53,6 +53,17 @@
       "priority": 1,
       "enabled": true,
       "careers_url": "https://www.contents.com/careers/"
+    },
+    {
+      "name": "dentsu / Merkle",
+      "provider": "workday",
+      "site": "dentsuaegis",
+      "workday_tenant": "dentsuaegis",
+      "workday_careers_id": "DAN_GLOBAL",
+      "region": "Italy",
+      "priority": 1,
+      "enabled": true,
+      "careers_url": "https://dentsuaegis.wd3.myworkdayjobs.com/en-US/DAN_GLOBAL"
     }
   ],
   "title_keywords": [
