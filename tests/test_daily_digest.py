@@ -104,3 +104,70 @@ class DailyDigestTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FreshVacanciesTests(unittest.TestCase):
+    def setUp(self):
+        self.config = {
+            "title_keywords": ["analyst", "intern"],
+            "exclude_title_keywords": ["senior"],
+            "locations": ["italy"],
+            "companies": [
+                {"name": "Stellantis — Turin listings (supplement)",
+                 "provider": "stellantis_torino", "site": "torino"},
+                {"name": "Satispay", "provider": "ashby", "site": "satispay"},
+            ],
+        }
+
+    @patch("daily_digest.fetch_jobs")
+    def test_outdated_turin_jobs_are_absent_from_message_and_csv(self, mocked):
+        """Curated Oct 12 links must NOT appear as current matches on Nov 13."""
+        def fetch(company):
+            if company["provider"] == "stellantis_torino":
+                return [{"id": "linkedin-12345", "title": "Marketing Intern",
+                         "location": "Torino, Italy", "url": "https://www.linkedin.com/jobs/view/12345/",
+                         "source_last_updated": "2026-10-12"}]
+            return [{"id": "new-job", "title": "Business Analyst",
+                     "location": "Milan, Italy", "url": "https://jobs.ashbyhq.com/satispay/new-job"}]
+        mocked.side_effect = fetch
+        groups = daily_digest.collect_daily_jobs(self.config, checked_on=datetime(2026, 11, 13).date())
+        self.assertEqual(groups[0]["excluded_stale"], 1)
+        self.assertTrue(groups[0]["source_outdated"])
+        self.assertEqual(groups[0]["jobs"], [])
+        self.assertEqual(len(groups[1]["jobs"]), 1)
+        self.assertIn("outdated/unverified matching jobs excluded", daily_digest.make_message(groups, datetime(2026,11,13)))
+        csv_data = daily_digest.make_csv(groups).decode("utf-8-sig")
+        self.assertNotIn("linkedin.com/jobs/view/12345", csv_data)
+        self.assertIn("jobs.ashbyhq.com/satispay/new-job", csv_data)
+
+    @patch("daily_digest.fetch_jobs")
+    def test_recent_turin_list_kept_with_caution(self, mocked):
+        mocked.return_value = [{"id": "3", "title": "Marketing Intern",
+                                 "location": "Torino, Italy", "url": "https://www.linkedin.com/jobs/view/3/",
+                                 "source_last_updated": "2026-11-10"}]
+        groups = daily_digest.collect_daily_jobs({**self.config, "companies": self.config["companies"][:1]},
+                                                 checked_on=datetime(2026, 11, 13).date())
+        self.assertFalse(groups[0]["source_outdated"])
+        self.assertEqual(len(groups[0]["jobs"]), 1)
+        csv_data = daily_digest.make_csv(groups).decode("utf-8-sig")
+        self.assertIn("posting may be closed", csv_data)
+
+    @patch("daily_digest.fetch_jobs")
+    def test_undated_turin_list_is_not_presented_as_current(self, mocked):
+        mocked.return_value = [{"id": "3", "title": "Marketing Intern",
+                                 "location": "Torino, Italy", "url": "https://www.linkedin.com/jobs/view/3/"}]
+        groups = daily_digest.collect_daily_jobs({**self.config, "companies": self.config["companies"][:1]},
+                                                 checked_on=datetime(2026,11,13).date())
+        self.assertEqual(groups[0]["jobs"], [])
+        self.assertEqual(groups[0]["excluded_stale"], 1)
+
+    def test_age_validation(self):
+        today = datetime(2026, 11, 13).date()
+        self.assertTrue(daily_digest._supplement_is_recent("2026-10-30", today, 14))
+        self.assertFalse(daily_digest._supplement_is_recent("2026-10-29", today, 14))
+        self.assertFalse(daily_digest._supplement_is_recent("2026-11-14", today, 14))
+        self.assertFalse(daily_digest._supplement_is_recent("", today, 14))
+        self.assertFalse(daily_digest._supplement_is_recent("not a date", today, 14))
+        for bad in [-1, 366, "14", True]:
+            with self.assertRaises(ValueError):
+                daily_digest.collect_daily_jobs({**self.config, "max_supplement_age_days": bad}, checked_on=today)

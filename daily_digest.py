@@ -9,7 +9,7 @@ filters. It intentionally NEVER reads or updates data/seen_jobs.json.
 
 import argparse
 import csv
-from datetime import datetime
+from datetime import date, datetime
 from io import StringIO
 import json
 import os
@@ -22,10 +22,36 @@ from monitor import CONFIG_PATH, TIMEOUT, fetch_jobs, matches
 
 ROME = ZoneInfo("Europe/Rome")
 MAX_TELEGRAM_MESSAGE = 4096
+DEFAULT_SUPPLEMENT_MAX_AGE_DAYS = 14
 
 
-def collect_daily_jobs(config):
-    """Check all enabled companies. A failing source is flagged, not counted as zero."""
+def _supplement_is_recent(source_date, checked_on, max_age_days):
+    """Conservatively reject undated, future-dated, or outdated curated lists.
+
+    An older third-party list is not evidence that its job links still accept
+    applications. Excluding it from the CURRENT digest does not imply closure.
+    """
+    try:
+        updated = date.fromisoformat(source_date)
+    except (TypeError, ValueError):
+        return False
+    days_old = (checked_on - updated).days
+    return 0 <= days_old <= max_age_days
+
+
+def collect_daily_jobs(config, checked_on=None):
+    """Rebuild CURRENT matches only from today's successful career feeds.
+
+    No old job rows are carried forward from data/seen_jobs.json. For the
+    supplemental Turin source, fail closed on stale source dates: older links
+    stay out of the daily CURRENT jobs report because they are unverified.
+    """
+    checked_on = checked_on or datetime.now(ROME).date()
+    if isinstance(checked_on, datetime):
+        checked_on = checked_on.date()
+    max_age_days = config.get("max_supplement_age_days", DEFAULT_SUPPLEMENT_MAX_AGE_DAYS)
+    if type(max_age_days) is not int or not 0 <= max_age_days <= 365:
+        raise ValueError("max_supplement_age_days must be an integer from 0 to 365")
     groups = []
     for company in config.get("companies", []):
         if not company.get("enabled", True):
@@ -37,6 +63,16 @@ def collect_daily_jobs(config):
                 **config,
                 "locations": company.get("locations", config.get("locations", [])),
             }
+            source_date = next(
+                (item.get("source_last_updated", "") for item in fetched if item.get("source_last_updated")),
+                "",
+            )
+            provider = company["provider"].lower()
+            # A curated listing may remain online weeks after an employer
+            # closes the position. Do not present it as currently open if the
+            # curator has not refreshed the page recently.
+            stale_supplement = (provider == "stellantis_torino" and
+                                not _supplement_is_recent(source_date, checked_on, max_age_days))
             unique = {}
             for job in fetched:
                 if matches(job, company_config):
@@ -44,25 +80,32 @@ def collect_daily_jobs(config):
                     if identifier and identifier not in unique:
                         unique[identifier] = job
             jobs = sorted(unique.values(), key=lambda job: job.get("title", "").casefold())
-            source_date = next(
-                (item.get("source_last_updated", "") for item in fetched if item.get("source_last_updated")),
-                "",
-            )
+            excluded_stale = len(jobs) if stale_supplement else 0
+            if stale_supplement:
+                jobs = []
             groups.append({
                 "name": name,
-                "provider": company["provider"].lower(),
+                "provider": provider,
                 "total": len(fetched),
                 "jobs": jobs,
                 "source_last_updated": source_date,
+                "excluded_stale": excluded_stale,
+                "source_outdated": stale_supplement,
                 "error": False,
             })
-            print(f"{name}: {len(fetched)} retrieved; {len(jobs)} matching")
+            if stale_supplement:
+                print(f"{name}: {len(fetched)} supplementary listings checked, "
+                      f"{excluded_stale} matching listings excluded as unverified "
+                      f"(source updated {source_date or 'unknown'})")
+            else:
+                print(f"{name}: {len(fetched)} retrieved; {len(jobs)} matching")
         except (requests.RequestException, ValueError, KeyError, TypeError) as exc:
             # Do not leak URLs with credentials into logs. These sources should
             # be public, but only expose the company name and error category.
             print(f"WARNING: {name} failed ({type(exc).__name__})")
             groups.append({"name": name, "provider": company["provider"].lower(),
-                           "total": None, "jobs": [], "source_last_updated": "", "error": True})
+                           "total": None, "jobs": [], "source_last_updated": "",
+                           "excluded_stale": 0, "source_outdated": False, "error": True})
     if not groups:
         raise RuntimeError("No companies are enabled in config.json")
     if all(group["error"] for group in groups):
@@ -118,6 +161,12 @@ def make_message(groups, day):
             lines.append(f"⚠️ {group['name']}: source unavailable today")
             continue
         count = len(group["jobs"])
+        if group.get("source_outdated", False):
+            updated = group["source_last_updated"] or "unknown"
+            lines.append(f"⚠️ {_clip(group['name'], 65)}: "
+                         f"{group['excluded_stale']} outdated/unverified matching jobs excluded "
+                         f"(source updated {updated})")
+            continue
         lines.append(f"🏢 {_clip(group['name'], 65)}: {count} matches ({group['total']} listed)")
         for job in group["jobs"][:2]:
             lines.append(f"   • {_clip(job.get('title'), 76)}")
@@ -129,7 +178,8 @@ def make_message(groups, day):
     lines.extend([
         "",
         "📎 The attached CSV includes EVERY matching listing and its application link.",
-        "These are advertised listings, not verified application availability.",
+        "Jobs missing from current feeds and outdated supplementary lists are excluded.",
+        "Listings in active feeds may still close before you apply; confirm on the employer site.",
         "New-job alerts continue separately.",
     ])
     msg = "\n".join(lines)
